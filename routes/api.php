@@ -2,28 +2,38 @@
 
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\PlaystationController;
+use App\Http\Controllers\TipePsController;
 use Illuminate\Support\Facades\Route;
 
+// =============================================
+// PUBLIC — tidak butuh token
+// =============================================
 Route::post('/register', [RegisterController::class, 'register']);
-
-Route::get('/test', function () {
-    return response()->json([
-        'message' => 'API jalan',
-    ]);
-});
 Route::post('/login', [LoginController::class,   'login']);
 
-// Protected routes (butuh token)
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/logout', [LoginController::class, 'logout']);
-
-    // Contoh route protected lainnya
-    Route::get('/me', function (Illuminate\Http\Request $request) {
-        return response()->json($request->user());
-    });
+Route::get('/test', function () {
+    return response()->json(['message' => 'API jalan']);
 });
 
-// ✅ Protected routes — khusus admin
+// =============================================
+// PROTECTED — semua user yang sudah login
+// =============================================
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [LoginController::class, 'logout']);
+    Route::get('/me', fn (\Illuminate\Http\Request $r) => response()->json($r->user()));
+});
+
+// =============================================
+// ADMIN ONLY — butuh token + role admin
+// =============================================
 Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
-    // Contoh: Route::get('/admin/users', [UserController::class, 'index']);
+    // Data Master
+    Route::apiResource('tipe-ps', TipePsController::class);
+
+    // Tambahkan route admin lainnya di sini nanti:
+    Route::apiResource('playstation', PlaystationController::class);
+    // Route::apiResource('makanan',   MakananController::class);
+    // Route::apiResource('transaksi', TransaksiController::class);
+    // Route::apiResource('user',      UserController::class);
 });
