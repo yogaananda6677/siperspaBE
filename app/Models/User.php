@@ -11,7 +11,9 @@ use Laravel\Sanctum\HasApiTokens; // ✅ tambah ini
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable; // ✅ tambah HasApiTokens di sini
+    use HasApiTokens, HasFactory, Notifiable; // ✅ tambah HasApiTokens di sini'
+
+    protected $primaryKey = 'id_user';
 
     protected $fillable = [
         'name',
@@ -19,12 +21,19 @@ class User extends Authenticatable
         'email',
         'role',
         'password',
+        'fcm_token', // untuk menyimpan token FCM
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'fcm_token', // sembunyikan juga token FCM saat serialisasi
     ];
+
+    public function transaksi(): HasMany
+    {
+        return $this->hasMany(Transaksi::class, 'id_user', 'id_user');
+    }
 
     protected function casts(): array
     {

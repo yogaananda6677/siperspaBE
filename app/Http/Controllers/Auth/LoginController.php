@@ -13,12 +13,12 @@ class LoginController extends Controller
     {
         // ✅ Validasi input
         $validated = $request->validate([
-            'email' => ['required', 'email'],
+            'username' => ['required', 'string'],
             'password' => ['required', 'string'],
         ]);
 
-        // ✅ Cari user berdasarkan email
-        $user = User::where('email', $validated['email'])->first();
+        // ✅ Cari user berdasarkan username
+        $user = User::where('username', $validated['username'])->first();
 
         // ✅ Cek user & password
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
