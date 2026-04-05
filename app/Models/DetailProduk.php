@@ -26,8 +26,6 @@ class DetailProduk extends Model
         'subtotal' => 'decimal:2',
     ];
 
-    // ── Relasi ──────────────────────────────────────────
-
     public function transaksi(): BelongsTo
     {
         return $this->belongsTo(Transaksi::class, 'id_transaksi', 'id_transaksi');
@@ -36,16 +34,5 @@ class DetailProduk extends Model
     public function produk(): BelongsTo
     {
         return $this->belongsTo(Produk::class, 'id_produk', 'id_produk');
-    }
-
-    // ── Helper ──────────────────────────────────────────
-
-    /**
-     * Hitung subtotal dari harga produk × qty lalu simpan.
-     */
-    public function hitungSubtotal(): void
-    {
-        $subtotal = $this->produk->harga * $this->qty;
-        $this->update(['subtotal' => $subtotal]);
     }
 }

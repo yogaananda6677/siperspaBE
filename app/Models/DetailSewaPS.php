@@ -19,6 +19,8 @@ class DetailSewaPS extends Model
         'id_transaksi',
         'id_ps',
         'jam_mulai',
+        'durasi_jam',
+        'durasi_menit',
         'jam_selesai',
         'harga_perjam',
         'tipe_ps',
@@ -28,11 +30,11 @@ class DetailSewaPS extends Model
     protected $casts = [
         'jam_mulai' => 'datetime',
         'jam_selesai' => 'datetime',
+        'durasi_jam' => 'integer',
+        'durasi_menit' => 'integer',
         'harga_perjam' => 'decimal:2',
         'subtotal' => 'decimal:2',
     ];
-
-    // ── Relasi ──────────────────────────────────────────
 
     public function transaksi(): BelongsTo
     {
@@ -44,38 +46,64 @@ class DetailSewaPS extends Model
         return $this->belongsTo(Playstation::class, 'id_ps', 'id_ps');
     }
 
-    // ── Helper ──────────────────────────────────────────
-
-    /**
-     * Hitung durasi dalam jam (desimal).
-     * Contoh: 1.5 = 1 jam 30 menit.
-     */
-    public function durasiJam(): float
+    public function durasiMenitEfektif(): int
     {
-        $mulai = Carbon::parse($this->jam_mulai);
-        $selesai = Carbon::parse($this->jam_selesai ?? now());
+        if (! empty($this->durasi_menit)) {
+            return (int) $this->durasi_menit;
+        }
 
-        return round($mulai->diffInMinutes($selesai) / 60, 2);
+        if (! empty($this->durasi_jam)) {
+            return (int) $this->durasi_jam * 60;
+        }
+
+        if ($this->jam_mulai && $this->jam_selesai) {
+            return Carbon::parse($this->jam_mulai)->diffInMinutes($this->jam_selesai);
+        }
+
+        return 0;
     }
 
-    /**
-     * Hitung dan simpan subtotal berdasarkan durasi × harga per jam.
-     */
-    public function hitungSubtotal(): void
+    public function hitungSubtotal(): float
     {
-        $subtotal = $this->durasiJam() * $this->harga_perjam;
-        $this->update(['subtotal' => $subtotal]);
+        return round(((float) $this->harga_perjam / 60) * $this->durasiMenitEfektif(), 2);
     }
 
-    /**
-     * Akhiri sesi sewa: set jam_selesai, hitung subtotal,
-     * update status PS jadi tersedia.
-     */
+    public function estimasiSelesai(): Carbon
+    {
+        return Carbon::parse($this->jam_mulai)->addMinutes($this->durasiMenitEfektif());
+    }
+
+    public function sisaDetik(): int
+    {
+        if (! $this->jam_selesai) {
+            return 0;
+        }
+
+        return max(0, now()->diffInSeconds($this->jam_selesai, false));
+    }
+
+    public function tambahWaktu(int $menitTambahan): void
+    {
+        $basisAkhir = $this->jam_selesai && $this->jam_selesai->isFuture()
+            ? $this->jam_selesai->copy()
+            : now();
+
+        $jamSelesaiBaru = $basisAkhir->copy()->addMinutes($menitTambahan);
+        $durasiMenitBaru = Carbon::parse($this->jam_mulai)->diffInMinutes($jamSelesaiBaru);
+        $durasiJamBaru = max(1, (int) ceil($durasiMenitBaru / 60));
+
+        $this->update([
+            'durasi_menit' => $durasiMenitBaru,
+            'durasi_jam' => $durasiJamBaru,
+            'jam_selesai' => $jamSelesaiBaru,
+            'subtotal' => round(((float) $this->harga_perjam / 60) * $durasiMenitBaru, 2),
+        ]);
+    }
+
     public function selesaikan(): void
     {
-        $this->update(['jam_selesai' => now()]);
-        $this->hitungSubtotal();
-        $this->playstation->updateStatus('tersedia');
-        $this->transaksi->hitungUlangTotal();
+        if ($this->playstation) {
+            $this->playstation->updateStatus('tersedia');
+        }
     }
 }

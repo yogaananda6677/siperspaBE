@@ -30,7 +30,7 @@ class Playstation extends Model
 
     public function detailSewa(): HasMany
     {
-        return $this->hasMany(DetailSewaPs::class, 'id_ps', 'id_ps');
+        return $this->hasMany(DetailSewaPS::class, 'id_ps', 'id_ps');
     }
 
     // ── Helper ──────────────────────────────────────────
