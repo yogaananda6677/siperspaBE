@@ -3,24 +3,39 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pembayaran;
+use App\Models\Transaksi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PembayaranController extends Controller
 {
-    public function bayar(Request $request, string $id): JsonResponse
+    private function transaksiRelations(): array
     {
-        $transaksi = Transaksi::with([
+        return [
             'user:id_user,name,username,email',
             'detailSewa.playstation.tipe',
             'detailProduk.produk',
             'pembayaran',
-        ])->findOrFail($id);
+        ];
+    }
 
-        if ($transaksi->status_transaksi !== 'aktif') {
+    public function bayar(Request $request, string $id): JsonResponse
+    {
+        $transaksi = Transaksi::with($this->transaksiRelations())->findOrFail($id);
+
+        if (! in_array($transaksi->status_transaksi, [
+            Transaksi::STATUS_AKTIF,
+            Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
+        ], true)) {
             return response()->json([
-                'message' => 'Hanya transaksi aktif yang bisa dibayar.',
+                'message' => 'Status transaksi ini tidak bisa dibayar.',
+            ], 422);
+        }
+
+        if ($transaksi->pembayaran && $transaksi->pembayaran->sudahLunas()) {
+            return response()->json([
+                'message' => 'Transaksi ini sudah lunas.',
             ], 422);
         }
 
@@ -32,9 +47,11 @@ class PembayaranController extends Controller
         DB::beginTransaction();
 
         try {
+            $transaksi->hitungUlangTotal();
+
             $totalTagihan = (float) $transaksi->total_harga;
-            $metode = $request->metode_pembayaran;
-            $totalBayarInput = (float) ($request->total_bayar ?? 0);
+            $metode = $request->input('metode_pembayaran');
+            $totalBayarInput = (float) ($request->input('total_bayar') ?? 0);
 
             if ($metode === 'cash') {
                 if ($totalBayarInput < $totalTagihan) {
@@ -49,7 +66,6 @@ class PembayaranController extends Controller
                 $kembalian = $totalBayar - $totalTagihan;
                 $statusBayar = 'lunas';
             } else {
-                // online payment manual
                 $totalBayar = $totalTagihan;
                 $kembalian = 0;
                 $statusBayar = 'lunas';
@@ -66,14 +82,22 @@ class PembayaranController extends Controller
                 ]
             );
 
+            // kalau transaksi aplikasi, setelah lunas ubah jadi aktif dan PS dipakai
+            if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
+                foreach ($transaksi->detailSewa as $sewa) {
+                    if ($sewa->playstation) {
+                        $sewa->playstation->updateStatus('digunakan');
+                    }
+                }
+
+                $transaksi->update([
+                    'status_transaksi' => Transaksi::STATUS_AKTIF,
+                ]);
+            }
+
             DB::commit();
 
-            $transaksi->refresh()->load([
-                'user:id_user,name,username,email',
-                'detailSewa.playstation.tipe',
-                'detailProduk.produk',
-                'pembayaran',
-            ]);
+            $transaksi->refresh()->load($this->transaksiRelations());
 
             return response()->json([
                 'message' => 'Pembayaran berhasil disimpan.',

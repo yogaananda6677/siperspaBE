@@ -29,17 +29,18 @@ class Pembayaran extends Model
         'waktu_bayar' => 'datetime',
     ];
 
-    // ── Relasi ──────────────────────────────────────────
-
     public function transaksi(): BelongsTo
     {
         return $this->belongsTo(Transaksi::class, 'id_transaksi', 'id_transaksi');
     }
 
-    // ── Helper ──────────────────────────────────────────
-
     public function sudahLunas(): bool
     {
         return $this->status_bayar === 'lunas';
+    }
+
+    public function masihMenunggu(): bool
+    {
+        return $this->status_bayar === 'menunggu';
     }
 }

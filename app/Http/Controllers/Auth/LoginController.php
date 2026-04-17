@@ -23,7 +23,7 @@ class LoginController extends Controller
         // ✅ Cek user & password
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
             return response()->json([
-                'message' => 'Email atau password salah.',
+                'message' => 'Username atau password salah.',
             ], 401);
         }
 

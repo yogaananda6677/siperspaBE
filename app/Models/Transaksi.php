@@ -21,12 +21,29 @@ class Transaksi extends Model
         'tanggal',
         'total_harga',
         'status_transaksi',
+        'sumber_transaksi',
     ];
 
     protected $casts = [
         'tanggal' => 'datetime',
         'total_harga' => 'decimal:2',
     ];
+
+    public const SUMBER_ADMIN = 'admin';
+
+    public const SUMBER_APLIKASI = 'aplikasi';
+
+    public const STATUS_MENUNGGU_PEMBAYARAN = 'menunggu_pembayaran';
+
+    public const STATUS_AKTIF = 'aktif';
+
+    public const STATUS_WAITING = 'waiting';
+
+    public const STATUS_SELESAI = 'selesai';
+
+    public const STATUS_DIBATALKAN = 'dibatalkan';
+
+    public const STATUS_DIJADWALKAN = 'dijadwalkan';
 
     public function user(): BelongsTo
     {
@@ -54,12 +71,42 @@ class Transaksi extends Model
 
         $totalSewa = $this->detailSewa->sum(fn ($item) => (float) $item->subtotal);
         $totalProduk = $this->detailProduk->sum(fn ($item) => (float) $item->subtotal);
-        $total = (float) $totalSewa + (float) $totalProduk;
+        $total = $totalSewa + $totalProduk;
 
         $this->forceFill([
             'total_harga' => $total,
         ])->save();
 
         return $total;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->sumber_transaksi === self::SUMBER_ADMIN;
+    }
+
+    public function isAplikasi(): bool
+    {
+        return $this->sumber_transaksi === self::SUMBER_APLIKASI;
+    }
+
+    public function isAktif(): bool
+    {
+        return $this->status_transaksi === self::STATUS_AKTIF;
+    }
+
+    public function isMenungguPembayaran(): bool
+    {
+        return $this->status_transaksi === self::STATUS_MENUNGGU_PEMBAYARAN;
+    }
+
+    public function isSelesai(): bool
+    {
+        return $this->status_transaksi === self::STATUS_SELESAI;
+    }
+
+    public function isDibatalkan(): bool
+    {
+        return $this->status_transaksi === self::STATUS_DIBATALKAN;
     }
 }

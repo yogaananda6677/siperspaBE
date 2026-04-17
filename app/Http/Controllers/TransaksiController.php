@@ -51,6 +51,27 @@ class TransaksiController extends Controller
         return 0;
     }
 
+    private function sudahLunas(Transaksi $transaksi): bool
+    {
+        return (bool) (
+            $transaksi->pembayaran &&
+            $transaksi->pembayaran->status_bayar === 'lunas'
+        );
+    }
+
+    private function bolehDiubah(Transaksi $transaksi): bool
+    {
+        if (! $transaksi->isAktif()) {
+            return false;
+        }
+
+        if ($this->sudahLunas($transaksi)) {
+            return false;
+        }
+
+        return true;
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Transaksi::with($this->transaksiRelations());
@@ -67,6 +88,10 @@ class TransaksiController extends Controller
             $query->where('id_user', $request->input('user_id'));
         }
 
+        if ($request->filled('sumber_transaksi')) {
+            $query->where('sumber_transaksi', $request->input('sumber_transaksi'));
+        }
+
         return response()->json(
             $query->orderByDesc('created_at')->paginate(15)
         );
@@ -76,6 +101,7 @@ class TransaksiController extends Controller
     {
         $request->validate([
             'id_user' => 'required|exists:users,id_user',
+            'sumber_transaksi' => 'required|in:admin,aplikasi',
 
             'sewa' => 'nullable|array',
             'sewa.*.id_ps' => 'required_with:sewa|exists:playstation,id_ps',
@@ -104,11 +130,27 @@ class TransaksiController extends Controller
         DB::beginTransaction();
 
         try {
+            $sumberTransaksi = $request->input('sumber_transaksi');
+
+            $statusAwal = $sumberTransaksi === Transaksi::SUMBER_APLIKASI
+                ? Transaksi::STATUS_WAITING
+                : Transaksi::STATUS_AKTIF;
+
             $transaksi = Transaksi::create([
                 'id_user' => $request->id_user,
                 'tanggal' => now(),
                 'total_harga' => 0,
-                'status_transaksi' => 'aktif',
+                'status_transaksi' => $statusAwal,
+                'sumber_transaksi' => $sumberTransaksi,
+            ]);
+
+            Pembayaran::create([
+                'id_transaksi' => $transaksi->id_transaksi,
+                'metode_pembayaran' => 'cash',
+                'total_bayar' => 0,
+                'kembalian' => 0,
+                'waktu_bayar' => null,
+                'status_bayar' => 'menunggu',
             ]);
 
             foreach ($sewaItems as $item) {
@@ -141,7 +183,9 @@ class TransaksiController extends Controller
                     'subtotal' => $subtotal,
                 ]);
 
-                $ps->updateStatus('digunakan');
+                if ($sumberTransaksi === Transaksi::SUMBER_ADMIN) {
+                    $ps->updateStatus('digunakan');
+                }
             }
 
             foreach ($request->input('produk', []) as $item) {
@@ -196,9 +240,15 @@ class TransaksiController extends Controller
     {
         $transaksi = Transaksi::with($this->transaksiRelations())->findOrFail($id);
 
-        if ($transaksi->status_transaksi !== 'aktif') {
+        if (! $transaksi->isAktif()) {
             return response()->json([
-                'message' => 'Transaksi ini sudah tidak aktif.',
+                'message' => 'Hanya transaksi aktif yang bisa diselesaikan.',
+            ], 422);
+        }
+
+        if (! $this->sudahLunas($transaksi)) {
+            return response()->json([
+                'message' => 'Transaksi belum lunas, tidak bisa diselesaikan.',
             ], 422);
         }
 
@@ -210,7 +260,7 @@ class TransaksiController extends Controller
             }
 
             $transaksi->update([
-                'status_transaksi' => 'selesai',
+                'status_transaksi' => Transaksi::STATUS_SELESAI,
             ]);
 
             $transaksi->hitungUlangTotal();
@@ -237,11 +287,16 @@ class TransaksiController extends Controller
         $transaksi = Transaksi::with([
             'detailSewa.playstation',
             'detailProduk.produk',
+            'pembayaran',
         ])->findOrFail($id);
 
-        if (! in_array($transaksi->status_transaksi, ['aktif', 'pending'], true)) {
+        if (! in_array($transaksi->status_transaksi, [
+            Transaksi::STATUS_AKTIF,
+            Transaksi::STATUS_WAITING,
+            Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
+        ], true)) {
             return response()->json([
-                'message' => 'Hanya transaksi aktif atau pending yang bisa dibatalkan.',
+                'message' => 'Transaksi ini tidak bisa dibatalkan.',
             ], 422);
         }
 
@@ -261,7 +316,7 @@ class TransaksiController extends Controller
             }
 
             $transaksi->update([
-                'status_transaksi' => 'dibatalkan',
+                'status_transaksi' => Transaksi::STATUS_DIBATALKAN,
             ]);
 
             DB::commit();
@@ -278,19 +333,60 @@ class TransaksiController extends Controller
         }
     }
 
-    public function tambahProduk(Request $request, string $id): JsonResponse
+    public function reject(string $id): JsonResponse
     {
-        $transaksi = Transaksi::with(['detailProduk.produk'])->findOrFail($id);
+        $transaksi = Transaksi::with([
+            'detailSewa.playstation',
+            'detailProduk.produk',
+            'pembayaran',
+        ])->findOrFail($id);
 
-        if ($transaksi->status_transaksi !== 'aktif') {
+        if ($transaksi->status_transaksi !== Transaksi::STATUS_WAITING) {
             return response()->json([
-                'message' => 'Hanya transaksi aktif yang bisa ditambahkan produk.',
+                'message' => 'Hanya transaksi waiting yang bisa ditolak.',
             ], 422);
         }
 
-        if ($transaksi->pembayaran && $transaksi->pembayaran->sudahLunas()) {
+        DB::beginTransaction();
+
+        try {
+            foreach ($transaksi->detailProduk as $detailProduk) {
+                if ($detailProduk->produk) {
+                    $detailProduk->produk->tambahStock((int) $detailProduk->qty);
+                }
+            }
+
+            $transaksi->update([
+                'status_transaksi' => Transaksi::STATUS_DITOLAK,
+            ]);
+
+            if ($transaksi->pembayaran) {
+                $transaksi->pembayaran->update([
+                    'status_bayar' => 'gagal',
+                ]);
+            }
+
+            DB::commit();
+
             return response()->json([
-                'message' => 'Transaksi yang sudah lunas tidak bisa diubah.',
+                'message' => 'Booking berhasil ditolak.',
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function tambahProduk(Request $request, string $id): JsonResponse
+    {
+        $transaksi = Transaksi::with(['detailProduk.produk', 'pembayaran'])->findOrFail($id);
+
+        if (! $this->bolehDiubah($transaksi)) {
+            return response()->json([
+                'message' => 'Transaksi ini tidak bisa ditambahkan produk.',
             ], 422);
         }
 
@@ -357,17 +453,11 @@ class TransaksiController extends Controller
 
     public function tambahWaktu(Request $request, string $id): JsonResponse
     {
-        $transaksi = Transaksi::with(['detailSewa.playstation.tipe'])->findOrFail($id);
+        $transaksi = Transaksi::with(['detailSewa.playstation.tipe', 'pembayaran'])->findOrFail($id);
 
-        if ($transaksi->status_transaksi !== 'aktif') {
+        if (! $this->bolehDiubah($transaksi)) {
             return response()->json([
-                'message' => 'Hanya transaksi aktif yang bisa ditambah waktu.',
-            ], 422);
-        }
-
-        if ($transaksi->pembayaran && $transaksi->pembayaran->sudahLunas()) {
-            return response()->json([
-                'message' => 'Transaksi yang sudah lunas tidak bisa diubah.',
+                'message' => 'Transaksi ini tidak bisa ditambah waktu.',
             ], 422);
         }
 
@@ -437,9 +527,18 @@ class TransaksiController extends Controller
             'pembayaran',
         ])->findOrFail($id);
 
-        if ($transaksi->status_transaksi !== 'aktif') {
+        if (! in_array($transaksi->status_transaksi, [
+            Transaksi::STATUS_AKTIF,
+            Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
+        ], true)) {
             return response()->json([
-                'message' => 'Hanya transaksi aktif yang bisa dibayar.',
+                'message' => 'Status transaksi ini tidak bisa dibayar.',
+            ], 422);
+        }
+
+        if ($transaksi->pembayaran && $transaksi->pembayaran->sudahLunas()) {
+            return response()->json([
+                'message' => 'Transaksi ini sudah lunas.',
             ], 422);
         }
 
@@ -451,6 +550,8 @@ class TransaksiController extends Controller
         DB::beginTransaction();
 
         try {
+            $transaksi->hitungUlangTotal();
+
             $totalTagihan = (float) $transaksi->total_harga;
             $metode = $request->metode_pembayaran;
             $totalBayarInput = (float) ($request->total_bayar ?? 0);
@@ -484,14 +585,21 @@ class TransaksiController extends Controller
                 ]
             );
 
+            if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
+                foreach ($transaksi->detailSewa as $sewa) {
+                    if ($sewa->playstation) {
+                        $sewa->playstation->updateStatus('digunakan');
+                    }
+                }
+
+                $transaksi->update([
+                    'status_transaksi' => Transaksi::STATUS_AKTIF,
+                ]);
+            }
+
             DB::commit();
 
-            $transaksi->refresh()->load([
-                'user:id_user,name,username,email',
-                'detailSewa.playstation.tipe',
-                'detailProduk.produk',
-                'pembayaran',
-            ]);
+            $transaksi->refresh()->load($this->transaksiRelations());
 
             return response()->json([
                 'message' => 'Pembayaran berhasil disimpan.',
@@ -504,5 +612,89 @@ class TransaksiController extends Controller
                 'message' => 'Terjadi kesalahan: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    public function approve(string $id): JsonResponse
+    {
+        $transaksi = Transaksi::with(['detailSewa.playstation', 'pembayaran'])->findOrFail($id);
+
+        if ($transaksi->status_transaksi !== Transaksi::STATUS_WAITING) {
+            return response()->json([
+                'message' => 'Hanya transaksi waiting yang bisa di-approve.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $now = now();
+
+            $bolehLangsungAktif = true;
+
+            foreach ($transaksi->detailSewa as $sewa) {
+                if ($sewa->playstation && ! $sewa->playstation->tersedia()) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => "PS {$sewa->playstation->nomor_ps} sudah tidak tersedia.",
+                    ], 422);
+                }
+
+                if ($now->lt(Carbon::parse($sewa->jam_mulai))) {
+                    $bolehLangsungAktif = false;
+                }
+            }
+
+            if ($bolehLangsungAktif) {
+                foreach ($transaksi->detailSewa as $sewa) {
+                    if ($sewa->playstation) {
+                        $sewa->playstation->updateStatus('digunakan');
+                    }
+                }
+
+                $transaksi->update([
+                    'status_transaksi' => Transaksi::STATUS_AKTIF,
+                ]);
+            } else {
+                $transaksi->update([
+                    'status_transaksi' => Transaksi::STATUS_DIJADWALKAN,
+                ]);
+            }
+
+            DB::commit();
+
+            $transaksi->refresh()->load($this->transaksiRelations());
+
+            return response()->json([
+                'message' => 'Transaksi berhasil di-approve.',
+                'data' => $transaksi,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function transaksiSaya(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $data = Transaksi::with($this->transaksiRelations())
+            ->where('id_user', $user->id_user)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'data' => $data,
+        ]);
     }
 }
