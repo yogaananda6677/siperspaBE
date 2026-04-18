@@ -19,8 +19,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // ✅ Alias middleware — letaknya di sini, bukan di dalam api()
         $middleware->alias([
-            'role.admin' => \App\Http\Middleware\Admin::class,
             'role.pelanggan' => \App\Http\Middleware\Pelanggan::class,
+            'role.admin' => \App\Http\Middleware\Admin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\MonitoringPlaystationController;
 use App\Http\Controllers\Pelanggan\MonitoringPelangganController;
 use App\Http\Controllers\PelangganController;
+use App\Http\Controllers\PembayaranController;
 use App\Http\Controllers\PlaystationController;
 use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\TipePsController;
@@ -41,6 +42,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout']);
     Route::get('/me', fn (Request $request) => response()->json($request->user()));
     Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
+
+    Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
+    Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
+    Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
+
 });
 
 // =======================
@@ -69,6 +75,8 @@ Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
     Route::delete('/admin/admins/{user}', [AdminController::class, 'destroy']);
 
     Route::patch('/transaksi/{id}/approve', [TransaksiController::class, 'approve']);
+    Route::patch('/transaksi/{id}/reject', [TransaksiController::class, 'reject']);
+
 });
 
 // =======================
@@ -78,6 +86,6 @@ Route::middleware(['auth:sanctum', 'role.pelanggan'])->group(function () {
     // nanti isi booking / transaksi pelanggan sendiri
     // contoh:
     // Route::post('/booking', [BookingController::class, 'store']);
-    // Route::get('/transaksi-saya', [TransaksiPelangganController::class, 'index']);
+    // Route::get('/transaksi-saya', [TransaksiController::class, 'index']);
 
 });

@@ -19,7 +19,7 @@ return new class extends Migration
                 ->cascadeOnUpdate()
                 ->restrictOnDelete();
 
-            $table->date('tanggal');
+            $table->dateTime('tanggal');
             $table->decimal('total_harga', 12, 2)->default(0);
 
             $table->enum('status_transaksi', [

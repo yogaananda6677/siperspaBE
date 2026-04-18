@@ -16,6 +16,8 @@ class MonitoringPelangganController extends Controller
             ->get();
 
         $transaksiMonitoring = Transaksi::with([
+            'user:id_user,name,username,email',
+            'pembayaran',
             'detailSewa',
             'detailProduk.produk',
         ])
@@ -34,6 +36,19 @@ class MonitoringPelangganController extends Controller
                 $transaksiByPs[$detailSewa->id_ps] = [
                     'id_transaksi' => $transaksi->id_transaksi,
                     'status_transaksi' => $transaksi->status_transaksi,
+                    'user' => $transaksi->user ? [
+                        'id_user' => $transaksi->user->id_user,
+                        'name' => $transaksi->user->name,
+                        'username' => $transaksi->user->username,
+                        'email' => $transaksi->user->email,
+                    ] : null,
+                    'pembayaran' => $transaksi->pembayaran ? [
+                        'id_pembayaran' => $transaksi->pembayaran->id_pembayaran,
+                        'status_bayar' => $transaksi->pembayaran->status_bayar,
+                        'metode_pembayaran' => $transaksi->pembayaran->metode_pembayaran,
+                        'total_bayar' => $transaksi->pembayaran->total_bayar,
+                        'waktu_bayar' => optional($transaksi->pembayaran->waktu_bayar)->format('Y-m-d H:i:s'),
+                    ] : null,
                     'detail_sewa' => $transaksi->detailSewa->map(function ($sewa) {
                         return [
                             'id_detail_sewa' => $sewa->id_dt_booking,
@@ -48,6 +63,7 @@ class MonitoringPelangganController extends Controller
                         return [
                             'id_detail_produk' => $detail->id_detail_produk,
                             'qty' => $detail->qty,
+                            'subtotal' => $detail->subtotal,
                             'produk' => $detail->produk ? [
                                 'id_produk' => $detail->produk->id_produk,
                                 'nama_produk' => $detail->produk->nama_produk,

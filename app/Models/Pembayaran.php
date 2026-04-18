@@ -10,6 +10,14 @@ class Pembayaran extends Model
 {
     use HasFactory;
 
+    public const STATUS_MENUNGGU = 'menunggu';
+
+    public const STATUS_MENUNGGU_VALIDASI = 'menunggu_validasi';
+
+    public const STATUS_LUNAS = 'lunas';
+
+    public const STATUS_GAGAL = 'gagal';
+
     protected $table = 'pembayaran';
 
     protected $primaryKey = 'id_pembayaran';
