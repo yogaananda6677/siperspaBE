@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\MonitoringPlaystationController;
@@ -34,6 +35,7 @@ Route::patch('/transaksi/{id}/tambah-waktu', [TransaksiController::class, 'tamba
 Route::patch('/transaksi/{id}/selesai', [TransaksiController::class, 'selesai']);
 Route::patch('/transaksi/{id}/batal', [TransaksiController::class, 'batal']);
 Route::patch('/transaksi/{id}/bayar', [TransaksiController::class, 'bayar']);
+Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 
 // =======================
 // AUTH (SEMUA USER LOGIN)
