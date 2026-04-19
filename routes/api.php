@@ -36,7 +36,6 @@ Route::patch('/transaksi/{id}/tambah-waktu', [TransaksiController::class, 'tamba
 Route::patch('/transaksi/{id}/selesai', [TransaksiController::class, 'selesai']);
 Route::patch('/transaksi/{id}/batal', [TransaksiController::class, 'batal']);
 Route::patch('/transaksi/{id}/bayar', [TransaksiController::class, 'bayar']);
-Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 
 // =======================
 // AUTH (SEMUA USER LOGIN)
@@ -56,6 +55,8 @@ Route::middleware('auth:sanctum')->group(function () {
 // ADMIN ONLY
 // =======================
 Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
+
+    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 
     Route::get('/monitoring/playstation', [MonitoringPlaystationController::class, 'index']);
 
