@@ -37,7 +37,28 @@ class LoginController extends Controller
             'user' => $user,
         ], 200);
     }
+    public function updatePassword(Request $request)
+    {
+        $user = $request->user();
 
+        $validated = $request->validate([
+            'current_password' => ['required'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'message' => 'Password lama tidak sesuai'
+            ], 422);
+        }
+
+        $user->password = Hash::make($validated['password']);
+        $user->save();
+
+        return response()->json([
+            'message' => 'Password berhasil diubah'
+        ]);
+    }
     public function logout(Request $request)
     {
         // ✅ Hapus token yang sedang dipakai
