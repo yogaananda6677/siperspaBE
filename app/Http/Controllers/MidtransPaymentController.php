@@ -32,10 +32,9 @@ class MidtransPaymentController extends Controller
         if (! in_array($transaksi->status_transaksi, [
             Transaksi::STATUS_AKTIF,
             Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
-            Transaksi::STATUS_WAITING,
         ], true)) {
             return response()->json([
-                'message' => 'Status transaksi ini tidak bisa dibayar.',
+                'message' => 'Status transaksi ini tidak bisa dibuatkan QRIS.',
             ], 422);
         }
 
@@ -77,35 +76,40 @@ class MidtransPaymentController extends Controller
             $actions = collect($result['actions'] ?? []);
             $generateQrAction = $actions->firstWhere('name', 'generate-qr-code');
 
-            $qrUrl = is_array($generateQrAction) ? ($generateQrAction['url'] ?? null) : null;
+            $qrUrl = is_array($generateQrAction)
+                ? ($generateQrAction['url'] ?? null)
+                : null;
+
             $qrString = $result['qr_string'] ?? null;
 
-            Pembayaran::updateOrCreate(
+            $pembayaran = Pembayaran::firstOrCreate(
                 ['id_transaksi' => $transaksi->id_transaksi],
                 [
-                    'metode_pembayaran' => 'online',
-                    'provider' => 'midtrans',
-                    'provider_order_id' => $orderId,
-                    'provider_transaction_id' => $result['transaction_id'] ?? null,
-                    'provider_payment_type' => $result['payment_type'] ?? 'qris',
-                    'provider_transaction_status' => $result['transaction_status'] ?? null,
-                    'provider_fraud_status' => $result['fraud_status'] ?? null,
-                    'payment_payload' => json_encode($result),
-                    'qr_string' => $qrString,
-                    'qr_url' => $qrUrl,
-                    'expired_at' => now()->addMinutes(15),
-                    'total_bayar' => $grossAmount,
+                    'metode_pembayaran' => 'cash',
+                    'total_bayar' => 0,
                     'kembalian' => 0,
                     'waktu_bayar' => null,
                     'status_bayar' => Pembayaran::STATUS_MENUNGGU,
                 ]
             );
 
-            if ($transaksi->status_transaksi === Transaksi::STATUS_WAITING) {
-                $transaksi->update([
-                    'status_transaksi' => Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
-                ]);
-            }
+            $pembayaran->update([
+                'metode_pembayaran' => 'online',
+                'provider' => 'midtrans',
+                'provider_order_id' => $orderId,
+                'provider_transaction_id' => $result['transaction_id'] ?? null,
+                'provider_payment_type' => $result['payment_type'] ?? 'qris',
+                'provider_transaction_status' => $result['transaction_status'] ?? 'pending',
+                'provider_fraud_status' => $result['fraud_status'] ?? null,
+                'payment_payload' => json_encode($result),
+                'qr_string' => $qrString,
+                'qr_url' => $qrUrl,
+                'expired_at' => now()->addMinutes(15),
+                'total_bayar' => $grossAmount,
+                'kembalian' => 0,
+                'waktu_bayar' => null,
+                'status_bayar' => Pembayaran::STATUS_LUNAS,
+            ]);
 
             DB::commit();
 
@@ -153,16 +157,18 @@ class MidtransPaymentController extends Controller
             ], 404);
         }
 
-        $transaksi = Transaksi::with(['detailSewa.playstation', 'pembayaran'])
-            ->findOrFail($pembayaran->id_transaksi);
+        $transaksi = Transaksi::with([
+            'detailSewa.playstation',
+            'pembayaran',
+        ])->findOrFail($pembayaran->id_transaksi);
 
         DB::beginTransaction();
 
         try {
-            $transactionStatus = $request->input('transaction_status');
-            $fraudStatus = $request->input('fraud_status');
-            $paymentType = $request->input('payment_type');
-            $transactionId = $request->input('transaction_id');
+            $transactionStatus = (string) $request->input('transaction_status');
+            $fraudStatus = (string) $request->input('fraud_status');
+            $paymentType = (string) $request->input('payment_type');
+            $transactionId = (string) $request->input('transaction_id');
 
             $statusBayar = Pembayaran::STATUS_MENUNGGU;
             $waktuBayar = null;
@@ -179,15 +185,20 @@ class MidtransPaymentController extends Controller
             }
 
             $pembayaran->update([
-                'provider_transaction_id' => $transactionId,
-                'provider_payment_type' => $paymentType,
+                'metode_pembayaran' => 'online',
+                'provider' => 'midtrans',
+                'provider_transaction_id' => $transactionId ?: $pembayaran->provider_transaction_id,
+                'provider_payment_type' => $paymentType ?: $pembayaran->provider_payment_type,
                 'provider_transaction_status' => $transactionStatus,
-                'provider_fraud_status' => $fraudStatus,
+                'provider_fraud_status' => $fraudStatus ?: null,
                 'payment_payload' => json_encode($request->all()),
                 'waktu_bayar' => $waktuBayar,
                 'status_bayar' => $statusBayar,
+                'kembalian' => 0,
             ]);
 
+            // Penting: jangan ubah transaksi jadi selesai di sini.
+            // Biarkan tetap aktif, selesai nanti oleh schedule / waktu habis.
             if ($statusBayar === Pembayaran::STATUS_LUNAS) {
                 if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
                     foreach ($transaksi->detailSewa as $sewa) {
@@ -203,9 +214,8 @@ class MidtransPaymentController extends Controller
             }
 
             if ($statusBayar === Pembayaran::STATUS_GAGAL) {
-                $transaksi->update([
-                    'status_transaksi' => Transaksi::STATUS_DIBATALKAN,
-                ]);
+                // gagal bayar online jangan dipaksa selesai
+                // biarkan status transaksi sesuai kebutuhan bisnis Anda
             }
 
             DB::commit();
