@@ -44,7 +44,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout']);
     Route::get('/me', fn (Request $request) => response()->json($request->user()));
     Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
-
+    
+    Route::put('/profile', [LoginController::class, 'updateProfile']);
+    Route::put('/user/password', [LoginController::class, 'updatePassword']);
+    
     Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
