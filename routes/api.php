@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\MidtransPaymentController;
 use App\Http\Controllers\MonitoringPlaystationController;
 use App\Http\Controllers\Pelanggan\MonitoringPelangganController;
 use App\Http\Controllers\PelangganController;
@@ -49,6 +50,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
+    Route::post('/transaksi/{id}/payment/qris', [MidtransPaymentController::class, 'createQris']);
+    Route::post('/midtrans/notification', [MidtransPaymentController::class, 'notification']);
 });
 
 // =======================

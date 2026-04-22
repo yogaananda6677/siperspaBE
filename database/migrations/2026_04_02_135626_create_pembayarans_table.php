@@ -17,7 +17,7 @@ return new class extends Migration
                 ->constrained('transaksi', 'id_transaksi')
                 ->cascadeOnUpdate()
                 ->cascadeOnDelete();
-            $table->enum('metode_pembayaran', ['cash', 'qris', 'transfer', 'debit'])
+            $table->enum('metode_pembayaran', ['cash', 'qris', 'transfer', 'debit', 'online'])
                 ->default('cash');
             $table->decimal('total_bayar', 12, 2);
             $table->decimal('kembalian', 12, 2)->default(0);
