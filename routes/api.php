@@ -48,11 +48,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
 
     Route::patch('/transaksi/admin/{id}/bayar', [TransaksiController::class, 'bayar']);
+
+    Route::put('/profile', [LoginController::class, 'updateProfile']);
+    Route::put('/user/password', [LoginController::class, 'updatePassword']);
+
     Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
     Route::post('/transaksi/{id}/payment/qris', [MidtransPaymentController::class, 'createQris']);
     Route::post('/midtrans/notification', [MidtransPaymentController::class, 'notification']);
+    Route::put('/profile', [LoginController::class, 'updateProfile']);
+    Route::put('/user/password', [LoginController::class, 'updatePassword']);
+
 });
 
 // =======================
