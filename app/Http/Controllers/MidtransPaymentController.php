@@ -8,6 +8,7 @@ use App\Services\MidtransService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class MidtransPaymentController extends Controller
 {
@@ -48,8 +49,32 @@ class MidtransPaymentController extends Controller
 
         try {
             $transaksi->hitungUlangTotal();
-
             $grossAmount = (int) round((float) $transaksi->total_harga);
+
+            // pakai QRIS lama kalau masih pending dan belum expired
+            if (
+                $transaksi->pembayaran &&
+                $transaksi->pembayaran->metode_pembayaran === 'online' &&
+                $transaksi->pembayaran->provider === 'midtrans' &&
+                $transaksi->pembayaran->status_bayar === Pembayaran::STATUS_MENUNGGU &&
+                $transaksi->pembayaran->provider_order_id &&
+                $transaksi->pembayaran->expired_at &&
+                now()->lt($transaksi->pembayaran->expired_at)
+            ) {
+                DB::commit();
+
+                $transaksi->refresh()->load($this->transaksiRelations());
+
+                return response()->json([
+                    'message' => 'QRIS aktif ditemukan.',
+                    'data' => [
+                        'transaksi' => $transaksi,
+                        'payment' => $transaksi->pembayaran,
+                        'midtrans' => json_decode($transaksi->pembayaran->payment_payload ?? '{}', true),
+                    ],
+                ]);
+            }
+
             $orderId = 'TRX-'.$transaksi->id_transaksi.'-'.now()->timestamp;
 
             $payload = [
@@ -108,7 +133,7 @@ class MidtransPaymentController extends Controller
                 'total_bayar' => $grossAmount,
                 'kembalian' => 0,
                 'waktu_bayar' => null,
-                'status_bayar' => Pembayaran::STATUS_LUNAS,
+                'status_bayar' => Pembayaran::STATUS_MENUNGGU,
             ]);
 
             DB::commit();
@@ -134,6 +159,8 @@ class MidtransPaymentController extends Controller
 
     public function notification(Request $request): JsonResponse
     {
+        Log::info('MIDTRANS CALLBACK MASUK', $request->all());
+
         $serverKey = config('services.midtrans.server_key');
 
         $orderId = (string) $request->input('order_id');
@@ -144,6 +171,12 @@ class MidtransPaymentController extends Controller
         $expectedSignature = hash('sha512', $orderId.$statusCode.$grossAmount.$serverKey);
 
         if (! hash_equals($expectedSignature, $signatureKey)) {
+            Log::warning('MIDTRANS INVALID SIGNATURE', [
+                'order_id' => $orderId,
+                'status_code' => $statusCode,
+                'gross_amount' => $grossAmount,
+            ]);
+
             return response()->json([
                 'message' => 'Invalid signature.',
             ], 403);
@@ -152,6 +185,10 @@ class MidtransPaymentController extends Controller
         $pembayaran = Pembayaran::where('provider_order_id', $orderId)->first();
 
         if (! $pembayaran) {
+            Log::warning('MIDTRANS PEMBAYARAN TIDAK DITEMUKAN', [
+                'order_id' => $orderId,
+            ]);
+
             return response()->json([
                 'message' => 'Pembayaran tidak ditemukan.',
             ], 404);
@@ -165,58 +202,7 @@ class MidtransPaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            $transactionStatus = (string) $request->input('transaction_status');
-            $fraudStatus = (string) $request->input('fraud_status');
-            $paymentType = (string) $request->input('payment_type');
-            $transactionId = (string) $request->input('transaction_id');
-
-            $statusBayar = Pembayaran::STATUS_MENUNGGU;
-            $waktuBayar = null;
-
-            if (in_array($transactionStatus, ['capture', 'settlement'], true)) {
-                if ($transactionStatus === 'capture' && $fraudStatus !== 'accept') {
-                    $statusBayar = Pembayaran::STATUS_MENUNGGU;
-                } else {
-                    $statusBayar = Pembayaran::STATUS_LUNAS;
-                    $waktuBayar = now();
-                }
-            } elseif (in_array($transactionStatus, ['deny', 'cancel', 'expire', 'failure'], true)) {
-                $statusBayar = Pembayaran::STATUS_GAGAL;
-            }
-
-            $pembayaran->update([
-                'metode_pembayaran' => 'online',
-                'provider' => 'midtrans',
-                'provider_transaction_id' => $transactionId ?: $pembayaran->provider_transaction_id,
-                'provider_payment_type' => $paymentType ?: $pembayaran->provider_payment_type,
-                'provider_transaction_status' => $transactionStatus,
-                'provider_fraud_status' => $fraudStatus ?: null,
-                'payment_payload' => json_encode($request->all()),
-                'waktu_bayar' => $waktuBayar,
-                'status_bayar' => $statusBayar,
-                'kembalian' => 0,
-            ]);
-
-            // Penting: jangan ubah transaksi jadi selesai di sini.
-            // Biarkan tetap aktif, selesai nanti oleh schedule / waktu habis.
-            if ($statusBayar === Pembayaran::STATUS_LUNAS) {
-                if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
-                    foreach ($transaksi->detailSewa as $sewa) {
-                        if ($sewa->playstation) {
-                            $sewa->playstation->updateStatus('digunakan');
-                        }
-                    }
-
-                    $transaksi->update([
-                        'status_transaksi' => Transaksi::STATUS_AKTIF,
-                    ]);
-                }
-            }
-
-            if ($statusBayar === Pembayaran::STATUS_GAGAL) {
-                // gagal bayar online jangan dipaksa selesai
-                // biarkan status transaksi sesuai kebutuhan bisnis Anda
-            }
+            $this->applyMidtransStatusToPayment($transaksi, $pembayaran, $request->all());
 
             DB::commit();
 
@@ -229,6 +215,104 @@ class MidtransPaymentController extends Controller
             return response()->json([
                 'message' => 'Notification failed: '.$e->getMessage(),
             ], 500);
+        }
+    }
+
+    public function checkStatus(string $id): JsonResponse
+    {
+        $transaksi = Transaksi::with($this->transaksiRelations())->findOrFail($id);
+
+        if (! $transaksi->pembayaran || $transaksi->pembayaran->provider !== 'midtrans') {
+            return response()->json([
+                'message' => 'Pembayaran Midtrans tidak ditemukan.',
+            ], 404);
+        }
+
+        if (! $transaksi->pembayaran->provider_order_id) {
+            return response()->json([
+                'message' => 'Order ID Midtrans tidak ditemukan.',
+            ], 404);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $result = $this->midtransService->getTransactionStatus(
+                $transaksi->pembayaran->provider_order_id
+            );
+
+            $this->applyMidtransStatusToPayment($transaksi, $transaksi->pembayaran, $result);
+
+            DB::commit();
+
+            $transaksi->refresh()->load($this->transaksiRelations());
+
+            return response()->json([
+                'message' => 'Status Midtrans berhasil disinkronkan.',
+                'data' => [
+                    'transaksi' => $transaksi,
+                    'payment' => $transaksi->pembayaran,
+                    'midtrans' => $result,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Gagal sinkron status Midtrans: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function applyMidtransStatusToPayment(
+        Transaksi $transaksi,
+        Pembayaran $pembayaran,
+        array $payload
+    ): void {
+        $transactionStatus = (string) ($payload['transaction_status'] ?? '');
+        $fraudStatus = (string) ($payload['fraud_status'] ?? '');
+        $paymentType = (string) ($payload['payment_type'] ?? '');
+        $transactionId = (string) ($payload['transaction_id'] ?? '');
+
+        $statusBayar = Pembayaran::STATUS_MENUNGGU;
+        $waktuBayar = null;
+
+        if (in_array($transactionStatus, ['capture', 'settlement'], true)) {
+            if ($transactionStatus === 'capture' && $fraudStatus !== 'accept') {
+                $statusBayar = Pembayaran::STATUS_MENUNGGU;
+            } else {
+                $statusBayar = Pembayaran::STATUS_LUNAS;
+                $waktuBayar = now();
+            }
+        } elseif (in_array($transactionStatus, ['deny', 'cancel', 'expire', 'failure'], true)) {
+            $statusBayar = Pembayaran::STATUS_GAGAL;
+        }
+
+        $pembayaran->update([
+            'metode_pembayaran' => 'online',
+            'provider' => 'midtrans',
+            'provider_transaction_id' => $transactionId ?: $pembayaran->provider_transaction_id,
+            'provider_payment_type' => $paymentType ?: $pembayaran->provider_payment_type,
+            'provider_transaction_status' => $transactionStatus ?: $pembayaran->provider_transaction_status,
+            'provider_fraud_status' => $fraudStatus ?: null,
+            'payment_payload' => json_encode($payload),
+            'waktu_bayar' => $waktuBayar,
+            'status_bayar' => $statusBayar,
+            'kembalian' => 0,
+        ]);
+
+        if ($statusBayar === Pembayaran::STATUS_LUNAS) {
+            if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
+                foreach ($transaksi->detailSewa as $sewa) {
+                    if ($sewa->playstation) {
+                        $sewa->playstation->updateStatus('digunakan');
+                    }
+                }
+
+                $transaksi->update([
+                    'status_transaksi' => Transaksi::STATUS_AKTIF,
+                ]);
+            }
         }
     }
 }

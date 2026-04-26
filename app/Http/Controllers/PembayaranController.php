@@ -49,7 +49,6 @@ class PembayaranController extends Controller
             $transaksi->hitungUlangTotal();
 
             $metode = $request->input('metode_pembayaran');
-            $totalTagihan = (float) $transaksi->total_harga;
 
             if ($metode === 'cash') {
                 Pembayaran::updateOrCreate(
@@ -59,7 +58,7 @@ class PembayaranController extends Controller
                         'total_bayar' => 0,
                         'kembalian' => 0,
                         'waktu_bayar' => null,
-                        'status_bayar' => 'menunggu_validasi',
+                        'status_bayar' => Pembayaran::STATUS_MENUNGGU_VALIDASI,
                     ]
                 );
 
@@ -77,38 +76,11 @@ class PembayaranController extends Controller
                 ]);
             }
 
-            // online langsung lunas
-            Pembayaran::updateOrCreate(
-                ['id_transaksi' => $transaksi->id_transaksi],
-                [
-                    'metode_pembayaran' => 'online',
-                    'total_bayar' => $totalTagihan,
-                    'kembalian' => 0,
-                    'waktu_bayar' => now(),
-                    'status_bayar' => 'lunas',
-                ]
-            );
-
-            if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
-                foreach ($transaksi->detailSewa as $sewa) {
-                    if ($sewa->playstation) {
-                        $sewa->playstation->updateStatus('digunakan');
-                    }
-                }
-
-                $transaksi->update([
-                    'status_transaksi' => Transaksi::STATUS_AKTIF,
-                ]);
-            }
-
-            DB::commit();
-
-            $transaksi->refresh()->load($this->transaksiRelations());
+            DB::rollBack();
 
             return response()->json([
-                'message' => 'Pembayaran online berhasil disimpan.',
-                'data' => $transaksi,
-            ]);
+                'message' => 'Pembayaran online pelanggan harus menggunakan QRIS Midtrans.',
+            ], 422);
         } catch (\Throwable $e) {
             DB::rollBack();
 

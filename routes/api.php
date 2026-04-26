@@ -27,7 +27,6 @@ Route::get('/produk', [ProdukController::class, 'index']);
 Route::apiResource('playstation', PlaystationController::class);
 Route::apiResource('tipe-ps', TipePsController::class);
 
-// monitoring khusus pelanggan -> public
 Route::get('/monitoring/pelanggan', [MonitoringPelangganController::class, 'index']);
 Route::get('/transaksi', [TransaksiController::class, 'index']);
 Route::post('/transaksi', [TransaksiController::class, 'store']);
@@ -36,7 +35,9 @@ Route::patch('/transaksi/{id}/tambah-produk', [TransaksiController::class, 'tamb
 Route::patch('/transaksi/{id}/tambah-waktu', [TransaksiController::class, 'tambahWaktu']);
 Route::patch('/transaksi/{id}/selesai', [TransaksiController::class, 'selesai']);
 Route::patch('/transaksi/{id}/batal', [TransaksiController::class, 'batal']);
-Route::patch('/transaksi/{id}/bayar', [TransaksiController::class, 'bayar']);
+
+// callback Midtrans HARUS public
+Route::post('/midtrans/notification', [MidtransPaymentController::class, 'notification']);
 
 // =======================
 // AUTH (SEMUA USER LOGIN)
@@ -45,30 +46,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout']);
     Route::get('/me', fn (Request $request) => response()->json($request->user()));
     Route::put('/profile', [ProfileController::class, 'update']);
-    Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
+    Route::put('/user/password', [LoginController::class, 'updatePassword']);
 
+    Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
+    Route::get('/transaksi/{id}/payment/qris/status', [MidtransPaymentController::class, 'checkStatus']);
+
+    // pembayaran pelanggan
+    Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
+    Route::post('/transaksi/{id}/payment/qris', [MidtransPaymentController::class, 'createQris']);
+
+    // pembayaran admin / kasir
     Route::patch('/transaksi/admin/{id}/bayar', [TransaksiController::class, 'bayar']);
 
-    Route::put('/profile', [LoginController::class, 'updateProfile']);
-    Route::put('/user/password', [LoginController::class, 'updatePassword']);
-
-    Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
+    // admin cash validation
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
-    Route::post('/transaksi/{id}/payment/qris', [MidtransPaymentController::class, 'createQris']);
-    Route::post('/midtrans/notification', [MidtransPaymentController::class, 'notification']);
-    Route::put('/profile', [LoginController::class, 'updateProfile']);
-    Route::put('/user/password', [LoginController::class, 'updatePassword']);
-
 });
 
 // =======================
 // ADMIN ONLY
 // =======================
 Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
-
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
-
     Route::get('/monitoring/playstation', [MonitoringPlaystationController::class, 'index']);
 
     Route::apiResource('playstation', PlaystationController::class);
