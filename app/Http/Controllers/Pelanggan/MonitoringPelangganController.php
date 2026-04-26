@@ -18,7 +18,7 @@ class MonitoringPelangganController extends Controller
         $transaksiMonitoring = Transaksi::with([
             'user:id_user,name,username,email',
             'pembayaran',
-            'detailSewa',
+            'detailSewa.playstation.tipe',
             'detailProduk.produk',
         ])
             ->whereIn('status_transaksi', [
@@ -27,15 +27,26 @@ class MonitoringPelangganController extends Controller
                 Transaksi::STATUS_AKTIF,
             ])
             ->whereHas('detailSewa')
+            ->orderByDesc('created_at')
             ->get();
 
         $transaksiByPs = [];
 
         foreach ($transaksiMonitoring as $transaksi) {
+            $priority = match ($transaksi->status_transaksi) {
+                Transaksi::STATUS_WAITING => 3,
+                Transaksi::STATUS_DIJADWALKAN => 2,
+                Transaksi::STATUS_AKTIF => 1,
+                default => 0,
+            };
+
             foreach ($transaksi->detailSewa as $detailSewa) {
-                $transaksiByPs[$detailSewa->id_ps] = [
+                $idPs = $detailSewa->id_ps;
+
+                $mappedTransaksi = [
                     'id_transaksi' => $transaksi->id_transaksi,
                     'status_transaksi' => $transaksi->status_transaksi,
+                    '_priority' => $priority,
                     'user' => $transaksi->user ? [
                         'id_user' => $transaksi->user->id_user,
                         'name' => $transaksi->user->name,
@@ -72,10 +83,28 @@ class MonitoringPelangganController extends Controller
                         ];
                     })->filter(fn ($item) => ! is_null($item['produk']))->values(),
                 ];
+
+                if (! isset($transaksiByPs[$idPs])) {
+                    $transaksiByPs[$idPs] = $mappedTransaksi;
+
+                    continue;
+                }
+
+                $currentPriority = $transaksiByPs[$idPs]['_priority'] ?? 0;
+
+                if ($priority > $currentPriority) {
+                    $transaksiByPs[$idPs] = $mappedTransaksi;
+                }
             }
         }
 
         $data = $playstations->map(function ($ps) use ($transaksiByPs) {
+            $activeTransaksi = $transaksiByPs[$ps->id_ps] ?? null;
+
+            if ($activeTransaksi) {
+                unset($activeTransaksi['_priority']);
+            }
+
             return [
                 'id_ps' => $ps->id_ps,
                 'nomor_ps' => (string) $ps->nomor_ps,
@@ -85,7 +114,7 @@ class MonitoringPelangganController extends Controller
                     'nama_tipe' => $ps->tipe->nama_tipe,
                     'harga_sewa' => (int) $ps->tipe->harga_sewa,
                 ] : null,
-                'active_transaksi' => $transaksiByPs[$ps->id_ps] ?? null,
+                'active_transaksi' => $activeTransaksi,
             ];
         })->values();
 

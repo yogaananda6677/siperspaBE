@@ -16,6 +16,7 @@ class MonitoringPlaystationController extends Controller
 
         $transaksiAktif = Transaksi::with([
             'user:id_user,name,username,email',
+            'pembayaran',
             'detailSewa.playstation.tipe',
             'detailProduk.produk',
         ])

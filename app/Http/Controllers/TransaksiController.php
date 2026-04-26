@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 class TransaksiController extends Controller
 {
+    private const BOOKING_MIN_DELAY_MINUTES = 30;
+
+    private const BOOKING_MAX_DELAY_MINUTES = 180;
+
     private function transaksiRelations(): array
     {
         return [
@@ -72,6 +76,124 @@ class TransaksiController extends Controller
         return true;
     }
 
+    private function statusMengunciJadwal(): array
+    {
+        return [
+            Transaksi::STATUS_AKTIF,
+            Transaksi::STATUS_WAITING,
+            Transaksi::STATUS_DIJADWALKAN,
+            Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
+        ];
+    }
+
+    private function getCurrentBlockingSewa(int $idPs, ?int $excludeTransaksiId = null): ?DetailSewaPS
+    {
+        return DetailSewaPS::with(['transaksi'])
+            ->where('id_ps', $idPs)
+            ->whereHas('transaksi', function ($q) use ($excludeTransaksiId) {
+                $q->whereIn('status_transaksi', $this->statusMengunciJadwal());
+
+                if ($excludeTransaksiId) {
+                    $q->where('id_transaksi', '!=', $excludeTransaksiId);
+                }
+            })
+            ->where('jam_selesai', '>', now())
+            ->orderBy('jam_selesai')
+            ->first();
+    }
+
+    private function hasScheduleConflict(
+        int $idPs,
+        Carbon $jamMulai,
+        Carbon $jamSelesai,
+        ?int $excludeTransaksiId = null
+    ): bool {
+        return DetailSewaPS::where('id_ps', $idPs)
+            ->whereHas('transaksi', function ($q) use ($excludeTransaksiId) {
+                $q->whereIn('status_transaksi', $this->statusMengunciJadwal());
+
+                if ($excludeTransaksiId) {
+                    $q->where('id_transaksi', '!=', $excludeTransaksiId);
+                }
+            })
+            ->where(function ($q) use ($jamMulai, $jamSelesai) {
+                $q->where('jam_mulai', '<', $jamSelesai)
+                    ->where('jam_selesai', '>', $jamMulai);
+            })
+            ->exists();
+    }
+
+    private function validateBookingWindow(
+        Playstation $ps,
+        Carbon $jamMulai,
+        int $durasiMenit,
+        string $sumberTransaksi,
+        ?int $excludeTransaksiId = null
+    ): ?string {
+        if ($ps->status_ps === 'maintenance') {
+            return "PS {$ps->nomor_ps} sedang maintenance.";
+        }
+
+        $jamSelesai = $jamMulai->copy()->addMinutes($durasiMenit);
+        $now = now();
+
+        if ($sumberTransaksi === Transaksi::SUMBER_ADMIN) {
+            if (! $ps->tersedia()) {
+                return "PS {$ps->nomor_ps} sedang tidak tersedia.";
+            }
+
+            if ($this->hasScheduleConflict($ps->id_ps, $jamMulai, $jamSelesai, $excludeTransaksiId)) {
+                return "Jadwal PS {$ps->nomor_ps} bentrok dengan transaksi lain.";
+            }
+
+            return null;
+        }
+
+        // APLIKASI / PELANGGAN
+        if ($ps->status_ps === 'digunakan') {
+            $blockingSewa = $this->getCurrentBlockingSewa($ps->id_ps, $excludeTransaksiId);
+
+            if (! $blockingSewa) {
+                return "PS {$ps->nomor_ps} sedang digunakan dan belum bisa dibooking.";
+            }
+
+            $minimalMulai = Carbon::parse($blockingSewa->jam_selesai)->addMinutes(self::BOOKING_MIN_DELAY_MINUTES);
+            $maksimalMulai = Carbon::parse($blockingSewa->jam_selesai)->addMinutes(self::BOOKING_MAX_DELAY_MINUTES);
+
+            if ($jamMulai->lt($minimalMulai)) {
+                return "Booking PS {$ps->nomor_ps} minimal mulai {$minimalMulai->format('Y-m-d H:i:s')}.";
+            }
+
+            if ($jamMulai->gt($maksimalMulai)) {
+                return "Booking PS {$ps->nomor_ps} maksimal mulai {$maksimalMulai->format('Y-m-d H:i:s')}.";
+            }
+        } elseif ($ps->tersedia()) {
+            $selisihMenit = $now->diffInMinutes($jamMulai, false);
+
+            // kalau bukan sekarang, berarti booking nanti
+            if ($selisihMenit > 0) {
+                $minimalMulai = $now->copy()->addMinutes(self::BOOKING_MIN_DELAY_MINUTES);
+                $maksimalMulai = $now->copy()->addMinutes(self::BOOKING_MAX_DELAY_MINUTES);
+
+                if ($jamMulai->lt($minimalMulai)) {
+                    return "Booking PS {$ps->nomor_ps} minimal 30 menit dari sekarang.";
+                }
+
+                if ($jamMulai->gt($maksimalMulai)) {
+                    return "Booking PS {$ps->nomor_ps} maksimal 3 jam dari sekarang.";
+                }
+            }
+        } else {
+            return "PS {$ps->nomor_ps} sedang tidak tersedia.";
+        }
+
+        if ($this->hasScheduleConflict($ps->id_ps, $jamMulai, $jamSelesai, $excludeTransaksiId)) {
+            return "Jadwal PS {$ps->nomor_ps} bentrok dengan transaksi lain.";
+        }
+
+        return null;
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Transaksi::with($this->transaksiRelations());
@@ -93,7 +215,7 @@ class TransaksiController extends Controller
         }
 
         return response()->json(
-            $query->orderByDesc('created_at')->paginate(15)
+            $query->orderByDesc('created_at')->paginate(100)
         );
     }
 
@@ -156,18 +278,26 @@ class TransaksiController extends Controller
             foreach ($sewaItems as $item) {
                 $ps = Playstation::with('tipe')->findOrFail($item['id_ps']);
 
-                if (! $ps->tersedia()) {
-                    DB::rollBack();
-
-                    return response()->json([
-                        'message' => "PS {$ps->nomor_ps} sedang tidak tersedia.",
-                    ], 422);
-                }
-
                 $durasiMenit = $this->resolveDurasiMenit($item);
                 $durasiJam = max(1, (int) ceil($durasiMenit / 60));
                 $jamMulai = Carbon::parse($item['jam_mulai']);
                 $jamSelesai = $jamMulai->copy()->addMinutes($durasiMenit);
+
+                $error = $this->validateBookingWindow(
+                    $ps,
+                    $jamMulai,
+                    $durasiMenit,
+                    $sumberTransaksi
+                );
+
+                if ($error) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => $error,
+                    ], 422);
+                }
+
                 $hargaPerJam = (float) ($ps->tipe->harga_sewa ?? 0);
                 $subtotal = round(($hargaPerJam / 60) * $durasiMenit, 2);
 
@@ -183,7 +313,10 @@ class TransaksiController extends Controller
                     'subtotal' => $subtotal,
                 ]);
 
-                if ($sumberTransaksi === Transaksi::SUMBER_ADMIN) {
+                if (
+                    $sumberTransaksi === Transaksi::SUMBER_ADMIN &&
+                    $jamMulai->lte(now())
+                ) {
                     $ps->updateStatus('digunakan');
                 }
             }
@@ -294,6 +427,7 @@ class TransaksiController extends Controller
             Transaksi::STATUS_AKTIF,
             Transaksi::STATUS_WAITING,
             Transaksi::STATUS_MENUNGGU_PEMBAYARAN,
+            Transaksi::STATUS_DIJADWALKAN,
         ], true)) {
             return response()->json([
                 'message' => 'Transaksi ini tidak bisa dibatalkan.',
@@ -304,7 +438,10 @@ class TransaksiController extends Controller
 
         try {
             foreach ($transaksi->detailSewa as $sewa) {
-                if ($sewa->playstation) {
+                if (
+                    $sewa->playstation &&
+                    $transaksi->status_transaksi === Transaksi::STATUS_AKTIF
+                ) {
                     $sewa->playstation->updateStatus('tersedia');
                 }
             }
@@ -553,8 +690,13 @@ class TransaksiController extends Controller
             $transaksi->hitungUlangTotal();
 
             $totalTagihan = (float) $transaksi->total_harga;
-            $metode = $request->metode_pembayaran;
-            $totalBayarInput = (float) ($request->total_bayar ?? 0);
+            $metode = $request->input('metode_pembayaran');
+            $totalBayarInput = (float) ($request->input('total_bayar') ?? 0);
+
+            $totalBayar = 0;
+            $kembalian = 0;
+            $waktuBayar = null;
+            $statusBayar = Pembayaran::STATUS_MENUNGGU;
 
             if ($metode === 'cash') {
                 if ($totalBayarInput < $totalTagihan) {
@@ -567,11 +709,19 @@ class TransaksiController extends Controller
 
                 $totalBayar = $totalBayarInput;
                 $kembalian = $totalBayar - $totalTagihan;
-                $statusBayar = 'lunas';
+
+                if ($transaksi->sumber_transaksi === Transaksi::SUMBER_ADMIN) {
+                    $statusBayar = Pembayaran::STATUS_LUNAS;
+                    $waktuBayar = now();
+                } else {
+                    $statusBayar = Pembayaran::STATUS_MENUNGGU_VALIDASI;
+                    $waktuBayar = null;
+                }
             } else {
                 $totalBayar = $totalTagihan;
                 $kembalian = 0;
-                $statusBayar = 'lunas';
+                $statusBayar = Pembayaran::STATUS_LUNAS;
+                $waktuBayar = now();
             }
 
             Pembayaran::updateOrCreate(
@@ -580,22 +730,10 @@ class TransaksiController extends Controller
                     'metode_pembayaran' => $metode,
                     'total_bayar' => $totalBayar,
                     'kembalian' => $kembalian,
-                    'waktu_bayar' => now(),
+                    'waktu_bayar' => $waktuBayar,
                     'status_bayar' => $statusBayar,
                 ]
             );
-
-            if ($transaksi->isAplikasi() && $transaksi->isMenungguPembayaran()) {
-                foreach ($transaksi->detailSewa as $sewa) {
-                    if ($sewa->playstation) {
-                        $sewa->playstation->updateStatus('digunakan');
-                    }
-                }
-
-                $transaksi->update([
-                    'status_transaksi' => Transaksi::STATUS_AKTIF,
-                ]);
-            }
 
             DB::commit();
 
@@ -616,7 +754,7 @@ class TransaksiController extends Controller
 
     public function approve(string $id): JsonResponse
     {
-        $transaksi = Transaksi::with(['detailSewa.playstation', 'pembayaran'])->findOrFail($id);
+        $transaksi = Transaksi::with(['detailSewa.playstation.tipe', 'pembayaran'])->findOrFail($id);
 
         if ($transaksi->status_transaksi !== Transaksi::STATUS_WAITING) {
             return response()->json([
@@ -628,20 +766,47 @@ class TransaksiController extends Controller
 
         try {
             $now = now();
-
             $bolehLangsungAktif = true;
 
             foreach ($transaksi->detailSewa as $sewa) {
-                if ($sewa->playstation && ! $sewa->playstation->tersedia()) {
+                $ps = $sewa->playstation;
+
+                if (! $ps) {
                     DB::rollBack();
 
                     return response()->json([
-                        'message' => "PS {$sewa->playstation->nomor_ps} sudah tidak tersedia.",
+                        'message' => 'Data PlayStation tidak ditemukan.',
                     ], 422);
                 }
 
-                if ($now->lt(Carbon::parse($sewa->jam_mulai))) {
+                $jamMulai = Carbon::parse($sewa->jam_mulai);
+                $durasiMenit = (int) ($sewa->durasi_menit ?: ((int) $sewa->durasi_jam * 60));
+                $error = $this->validateBookingWindow(
+                    $ps,
+                    $jamMulai,
+                    $durasiMenit,
+                    $transaksi->sumber_transaksi,
+                    $transaksi->id_transaksi
+                );
+
+                if ($error) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => $error,
+                    ], 422);
+                }
+
+                if ($now->lt($jamMulai)) {
                     $bolehLangsungAktif = false;
+                }
+
+                if ($jamMulai->lte($now) && ! $ps->tersedia()) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => "PS {$ps->nomor_ps} masih digunakan dan belum bisa langsung diaktifkan.",
+                    ], 422);
                 }
             }
 

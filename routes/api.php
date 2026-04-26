@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/profile', [ProfileController::class, 'update']);
     Route::get('/transaksi-saya', [TransaksiController::class, 'transaksiSaya']);
 
+    Route::patch('/transaksi/admin/{id}/bayar', [TransaksiController::class, 'bayar']);
     Route::patch('/transaksi/{id}/bayar', [PembayaranController::class, 'bayar']);
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
