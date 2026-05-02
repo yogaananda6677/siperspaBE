@@ -82,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // ADMIN ONLY
 // =======================
 Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
+    // Route::apiResource('tipe-ps', TipePsController::class)->only(['index', 'show']);
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
     Route::get('/monitoring/playstation', [MonitoringPlaystationController::class, 'index']);
 
@@ -92,6 +93,11 @@ Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
     Route::put('/produk/{id}', [ProdukController::class, 'update']);
     Route::delete('/produk/{id}', [ProdukController::class, 'destroy']);
     Route::patch('/produk/{id}/stock', [ProdukController::class, 'updateStock']);
+
+    Route::post('/tipe-ps', [TipePsController::class, 'store']);
+    Route::get('/tipe-ps/{id}', [TipePsController::class, 'show']);
+    Route::put('/tipe-ps/{id}', [TipePsController::class, 'update']);
+    Route::delete('/tipe-ps/{id}', [TipePsController::class, 'destroy']);
 
     Route::get('/pelanggan', [PelangganController::class, 'index']);
     Route::post('/pelanggan', [PelangganController::class, 'store']);
