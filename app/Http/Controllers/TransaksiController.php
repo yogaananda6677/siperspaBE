@@ -130,6 +130,10 @@ class TransaksiController extends Controller
         string $sumberTransaksi,
         ?int $excludeTransaksiId = null
     ): ?string {
+        if ($durasiMenit < 1) {
+            return "Durasi sewa minimal 1 menit.";
+        }
+
         if ($ps->status_ps === 'maintenance') {
             return "PS {$ps->nomor_ps} sedang maintenance.";
         }
@@ -355,7 +359,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -410,7 +414,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -465,7 +469,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -512,7 +516,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -583,7 +587,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -650,7 +654,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -747,7 +751,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -781,6 +785,14 @@ class TransaksiController extends Controller
 
                 $jamMulai = Carbon::parse($sewa->jam_mulai);
                 $durasiMenit = (int) ($sewa->durasi_menit ?: ((int) $sewa->durasi_jam * 60));
+                
+                if ($durasiMenit < 1) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Durasi sewa tidak valid.',
+                    ], 422);
+                }
+                
                 $error = $this->validateBookingWindow(
                     $ps,
                     $jamMulai,
@@ -838,7 +850,7 @@ class TransaksiController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Terjadi kesalahan: '.$e->getMessage(),
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
             ], 500);
         }
     }

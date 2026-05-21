@@ -24,8 +24,14 @@ use Illuminate\Support\Facades\Route;
 // =======================
 Route::post('/register', [RegisterController::class, 'register']);
 Route::post('/login', [LoginController::class, 'login']);
-Route::get('/test', fn () => response()->json(['message' => 'API jalan']));
 
+Route::post('/verify-otp', [RegisterController::class, 'verifyOtp']);
+Route::post('/resend-otp', [RegisterController::class, 'resendOtp']);
+
+Route::post('/forgot-password', [LoginController::class, 'forgotPassword']);
+Route::post('/verify-reset-otp', [LoginController::class, 'verifyResetOtp']);
+Route::post('/reset-password', [LoginController::class, 'resetPassword']);
+    
 Route::get('/produk', [ProdukController::class, 'index']);
 Route::apiResource('playstation', PlaystationController::class)->only(['index', 'show']);
 Route::apiResource('tipe-ps', TipePsController::class)->only(['index', 'show']);

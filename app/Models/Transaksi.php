@@ -40,9 +40,11 @@ class Transaksi extends Model
     public const STATUS_WAITING = 'waiting';
 
     public const STATUS_SELESAI = 'selesai';
+    
+    public const STATUS_DITOLAK    = 'ditolak';
 
-    public const STATUS_DITOLAK = 'dibatalkan';
-
+    public const STATUS_DIBATALKAN = 'dibatalkan';
+    
     public const STATUS_DIJADWALKAN = 'dijadwalkan';
 
     public function user(): BelongsTo

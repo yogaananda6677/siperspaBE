@@ -6,6 +6,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Laravel\Sanctum\HasApiTokens; // ✅ tambah ini
 
 class User extends Authenticatable
@@ -22,6 +23,12 @@ class User extends Authenticatable
         'role',
         'password',
         'fcm_token', // untuk menyimpan token FCM
+
+        'email_verified_at',
+        'verification_code',
+        'verification_code_expired_at',
+        'reset_token',
+        'reset_token_expired_at',
     ];
 
     protected $hidden = [
@@ -44,6 +51,8 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'verification_code_expired_at' => 'datetime',
+            'reset_token_expired_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
