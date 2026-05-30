@@ -16,6 +16,7 @@ use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TipePsController;
 use App\Http\Controllers\TransaksiController;
+use App\Http\Controllers\LaporanController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -118,6 +119,7 @@ Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
     Route::patch('/transaksi/{id}/approve', [TransaksiController::class, 'approve']);
     Route::patch('/transaksi/{id}/reject', [TransaksiController::class, 'reject']);
 
+    Route::get('/laporan/pendapatan', [LaporanController::class, 'pendapatan']);
     // =======================
     // PENGADUAN ADMIN
     // Dibuat prefix admin supaya tidak bentrok dengan /api/pengaduan pelanggan
@@ -127,6 +129,8 @@ Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
     Route::get('/admin/pengaduan/{pengaduan}', [PengaduanAdminController::class, 'show']);
     Route::patch('/admin/pengaduan/{pengaduan}/status', [PengaduanAdminController::class, 'updateStatus']);
     Route::delete('/admin/pengaduan/{pengaduan}', [PengaduanAdminController::class, 'destroy']);
+
+    Route::get('/laporan/pendapatan', [LaporanController::class, 'pendapatan']);
 });
 
 // =======================

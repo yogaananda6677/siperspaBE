@@ -80,7 +80,7 @@ class PengaduanController extends Controller
                 'in:ps_rusak,pelayanan,kebersihan,pembayaran,fasilitas,lainnya',
             ],
             'isi_pengaduan' => ['required', 'string'],
-            'foto_bukti' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'foto_bukti' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,mp4,mov,3gp', 'max:51200'],
         ]);
 
         $fotoPath = null;
