@@ -25,12 +25,12 @@ class LoginController extends Controller
             ], 401);
         }
 
-        // ✅ Cek verifikasi hanya untuk pelanggan, admin & kasir bebas
-        if ($user->role === 'pelanggan' && $user->email_verified_at === null) {
-            return response()->json([
-                'message' => 'Email belum diverifikasi. Silakan verifikasi OTP terlebih dahulu.',
-            ], 403);
-        }
+        // // ✅ Cek verifikasi hanya untuk pelanggan, admin & kasir bebas
+        // // if ($user->role === 'pelanggan' && $user->email_verified_at === null) {
+        // //     return response()->json([
+        // //         'message' => 'Email belum diverifikasi. Silakan verifikasi OTP terlebih dahulu.',
+        // //     ], 403);
+        // }
 
         $token = $user->createToken('auth_token')->plainTextToken;
 

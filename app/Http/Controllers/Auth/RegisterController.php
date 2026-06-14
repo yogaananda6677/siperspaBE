@@ -22,7 +22,7 @@ class RegisterController extends Controller
             'password' => ['required', 'min:8', 'confirmed'],
         ]);
 
-        $otp = rand(10000, 999999);
+        // $otp = rand(10000, 999999);
 
         // ✅ Simpan user
     $user = User::create([
@@ -31,17 +31,18 @@ class RegisterController extends Controller
         'email' => $validated['email'],
         'role' => $validated['role'],
         'password' => Hash::make($validated['password']),
-        'verification_code' => $otp,
-        'verification_code_expired_at' => now()->addMinutes(10),
+        'email_verfied_at' => now(),
+        // 'verification_code' => $otp,
+        // 'verification_code_expired_at' => now()->addMinutes(10),
     ]);
 
-        Mail::raw(
-            "Halo {$user->name},\n\nKode verifikasi akun InfinityPS kamu adalah: {$otp}\n\nKode ini berlaku selama 10 menit.\n\nTerima kasih.",
-            function ($message) use ($user) {
-                $message->to($user->email)
-                    ->subject('Kode Verifikasi Akun InfinityPS');
-        }
-    );
+    //     Mail::raw(
+    //         "Halo {$user->name},\n\nKode verifikasi akun InfinityPS kamu adalah: {$otp}\n\nKode ini berlaku selama 10 menit.\n\nTerima kasih.",
+    //         function ($message) use ($user) {
+    //             $message->to($user->email)
+    //                 ->subject('Kode Verifikasi Akun InfinityPS');
+    //     }
+    // );
 
         // ✅ Response JSON (penting buat Next.js)
         return response()->json([

@@ -13,7 +13,7 @@ class LaporanController extends Controller
     public function pendapatan(Request $request): JsonResponse
     {
         $request->validate([
-            'periode' => 'required|in:harian,mingguan,bulanan',
+            'periode' => 'required|in:harian,mingguan,bulanan,tahunan',
             'tanggal' => 'nullable|date',
             'bulan'   => 'nullable|integer|min:1|max:12',
             'tahun'   => 'nullable|integer|min:2000',
@@ -28,6 +28,7 @@ class LaporanController extends Controller
             'harian'   => $this->harian($tanggal),
             'mingguan' => $this->mingguan($tahun, $bulan),
             'bulanan'  => $this->bulanan($tahun),
+            'tahunan'  => $this->tahunan(),
         };
 
         $totalPendapatan = collect($rows)->sum('total_pendapatan');
@@ -113,5 +114,27 @@ class LaporanController extends Controller
             ]);
 
         return [$dari->toDateString(), $sampai->toDateString(), $rows];
+    }
+    private function tahunan(): array
+    {
+        $rows = $this->baseQuery()
+            ->selectRaw('
+                YEAR(tanggal) as tahun,
+                COUNT(*) as jumlah_transaksi,
+                SUM(total_harga) as total_pendapatan
+            ')
+            ->groupBy('tahun')
+            ->orderBy('tahun')
+            ->get()
+            ->map(fn ($r) => [
+                'label'            => (string) $r->tahun,
+                'jumlah_transaksi' => (int) $r->jumlah_transaksi,
+                'total_pendapatan' => (float) $r->total_pendapatan,
+            ]);
+
+        $dari = $rows->first()['label'] ?? now()->year;
+        $sampai = $rows->last()['label'] ?? now()->year;
+
+        return [$dari, $sampai, $rows];
     }
 }
