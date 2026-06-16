@@ -17,6 +17,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TipePsController;
 use App\Http\Controllers\TransaksiController;
 use App\Http\Controllers\LaporanController;
+use App\Http\Controllers\RiwayatController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -73,6 +74,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Admin cash validation
     Route::get('/pembayaran/cash-menunggu', [PembayaranController::class, 'cashMenunggu']);
     Route::patch('/pembayaran/{id}/konfirmasi-cash', [PembayaranController::class, 'konfirmasiCash']);
+
+    Route::get('riwayat', [RiwayatController::class, 'getRiwayat']);
 
     // =======================
     // PENGADUAN SEMUA USER LOGIN
