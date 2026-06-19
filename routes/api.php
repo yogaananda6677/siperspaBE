@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\PengaduanAdminController;
 use App\Http\Controllers\Api\PengaduanController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\LaporanController;
 use App\Http\Controllers\MidtransPaymentController;
 use App\Http\Controllers\MonitoringPlaystationController;
 use App\Http\Controllers\Pelanggan\MonitoringPelangganController;
@@ -14,10 +15,9 @@ use App\Http\Controllers\PembayaranController;
 use App\Http\Controllers\PlaystationController;
 use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RiwayatController;
 use App\Http\Controllers\TipePsController;
 use App\Http\Controllers\TransaksiController;
-use App\Http\Controllers\LaporanController;
-use App\Http\Controllers\RiwayatController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -33,7 +33,7 @@ Route::post('/resend-otp', [RegisterController::class, 'resendOtp']);
 Route::post('/forgot-password', [LoginController::class, 'forgotPassword']);
 Route::post('/verify-reset-otp', [LoginController::class, 'verifyResetOtp']);
 Route::post('/reset-password', [LoginController::class, 'resetPassword']);
-    
+
 Route::get('/produk', [ProdukController::class, 'index']);
 Route::apiResource('playstation', PlaystationController::class)->only(['index', 'show']);
 Route::apiResource('tipe-ps', TipePsController::class)->only(['index', 'show']);
@@ -135,6 +135,13 @@ Route::middleware(['auth:sanctum', 'role.admin'])->group(function () {
 
     Route::get('/laporan/pendapatan', [LaporanController::class, 'pendapatan']);
 });
+Route::get('/storage/{path}', function ($path) {
+    $fullPath = storage_path('app/public/'.$path);
+    if (file_exists($fullPath)) {
+        return response()->file($fullPath);
+    }
+    abort(404);
+})->where('path', '.*');
 
 // =======================
 // PELANGGAN ONLY

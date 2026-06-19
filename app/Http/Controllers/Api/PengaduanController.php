@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Pengaduan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class PengaduanController extends Controller
 {
@@ -86,21 +88,67 @@ class PengaduanController extends Controller
         $fotoPath = null;
 
         if ($request->hasFile('foto_bukti')) {
-            $fotoPath = $request->file('foto_bukti')->store('pengaduan', 'public');
+            $uploaded = $request->file('foto_bukti');
+
+            Log::info('File pengaduan diterima', [
+                'nama_asli' => $uploaded->getClientOriginalName(),
+                'ukuran_kb' => round($uploaded->getSize() / 1024, 1),
+                'mime' => $uploaded->getMimeType(),
+                'is_valid' => $uploaded->isValid(),
+            ]);
+
+            if (! $uploaded->isValid()) {
+                // File rusak/tidak lengkap saat upload (mis. koneksi putus di tengah jalan)
+                Log::error('File pengaduan tidak valid: ' . $uploaded->getErrorMessage());
+                return response()->json([
+                    'message' => 'Upload foto gagal: file tidak lengkap atau rusak. Coba lagi.',
+                ], 422);
+            }
+
+            try {
+                $fotoPath = $uploaded->store('pengaduan', 'public');
+
+                if (! $fotoPath) {
+                    throw new \RuntimeException('store() mengembalikan null/false');
+                }
+
+                Log::info('Foto pengaduan tersimpan di: ' . $fotoPath);
+            } catch (Throwable $e) {
+                // Ini yang sebelumnya tampil di HP sebagai "the stream or file ... could not be opened"
+                Log::error('Gagal menyimpan foto pengaduan: ' . $e->getMessage(), [
+                    'exception' => $e,
+                ]);
+
+                return response()->json([
+                    'message' => 'Gagal menyimpan foto di server. Cek permission folder storage.',
+                ], 500);
+            }
+        } else {
+            Log::info('Pengaduan dibuat tanpa foto bukti.');
         }
 
-        $pengaduan = Pengaduan::create([
-            'id_pengadu' => $user->id_user,
-            'id_admin' => null,
-            'judul_pengaduan' => $request->judul_pengaduan,
-            'kategori_aduan' => $request->kategori_aduan,
-            'isi_pengaduan' => $request->isi_pengaduan,
-            'foto_bukti' => $fotoPath,
-            'status_pengaduan' => 'pending',
-            'catatan_admin' => null,
-            'ditangani_pada' => null,
-            'diselesaikan_pada' => null,
-        ]);
+        try {
+            $pengaduan = Pengaduan::create([
+                'id_pengadu' => $user->id_user,
+                'id_admin' => null,
+                'judul_pengaduan' => $request->judul_pengaduan,
+                'kategori_aduan' => $request->kategori_aduan,
+                'isi_pengaduan' => $request->isi_pengaduan,
+                'foto_bukti' => $fotoPath,
+                'status_pengaduan' => 'pending',
+                'catatan_admin' => null,
+                'ditangani_pada' => null,
+                'diselesaikan_pada' => null,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Gagal menyimpan data pengaduan ke database: ' . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'Gagal menyimpan data pengaduan ke database.',
+            ], 500);
+        }
 
         $pengaduan->load(['pengadu', 'admin']);
 
